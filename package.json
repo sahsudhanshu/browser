@@ -1,0 +1,16 @@
+{
+  "name": "electron-react-browser",
+  "version": "1.0.0",
+  "main": "main.js",
+  "private": true,
+  "scripts": {
+    "start": "concurrently \"npm run react-start\" \"npm run electron-start\"",
+    "react-start": "cd app && npm start",
+    "electron-start": "wait-on http://localhost:3000 && electron ."
+  },
+  "dependencies": {
+    "electron": "^29.0.0",
+    "concurrently": "^8.2.2",
+    "wait-on": "^7.0.1"
+  }
+}

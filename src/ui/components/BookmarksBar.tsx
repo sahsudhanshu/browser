@@ -5,15 +5,16 @@ import type { Bookmark } from '@/types/electron';
 
 interface BookmarksBarProps {
   onNavigate: (url: string) => void;
+  refreshKey?: number;
 }
 
-export const BookmarksBar: React.FC<BookmarksBarProps> = ({ onNavigate }) => {
+export const BookmarksBar: React.FC<BookmarksBarProps> = ({ onNavigate, refreshKey }) => {
   const [bookmarks, setBookmarks] = useState<Bookmark[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     loadBookmarks();
-  }, []);
+  }, [refreshKey]);
 
   const loadBookmarks = async () => {
     try {

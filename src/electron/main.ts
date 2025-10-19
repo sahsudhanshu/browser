@@ -26,6 +26,8 @@ app.on("ready", () => {
 
     if (isDev()) {
         mainWindow.loadURL(`http://localhost:5123`);
+        // Open DevTools in development
+        mainWindow.webContents.openDevTools();
     } else {
         mainWindow.loadFile(path.join(app.getAppPath(), '/dist-react/index.html'));
     }

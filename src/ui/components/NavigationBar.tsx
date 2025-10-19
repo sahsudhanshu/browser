@@ -6,6 +6,8 @@ import { Input } from '@/components/ui/input';
 
 interface NavigationBarProps {
   currentUrl: string;
+  currentTitle?: string;
+  currentFavicon?: string;
   canGoBack: boolean;
   canGoForward: boolean;
   isLoading: boolean;
@@ -15,10 +17,13 @@ interface NavigationBarProps {
   onHome: () => void;
   onNavigate: (url: string) => void;
   onToggleDevTools?: () => void;
+  onBookmarkAdded?: () => void;
 }
 
 export const NavigationBar: React.FC<NavigationBarProps> = ({
   currentUrl,
+  currentTitle,
+  currentFavicon,
   canGoBack,
   canGoForward,
   isLoading,
@@ -28,9 +33,11 @@ export const NavigationBar: React.FC<NavigationBarProps> = ({
   onHome,
   onNavigate,
   onToggleDevTools,
+  onBookmarkAdded,
 }) => {
   const [inputValue, setInputValue] = React.useState(currentUrl);
   const [isFocused, setIsFocused] = React.useState(false);
+  const [bookmarkLoading, setBookmarkLoading] = React.useState(false);
 
   React.useEffect(() => {
     setInputValue(currentUrl);
@@ -42,6 +49,40 @@ export const NavigationBar: React.FC<NavigationBarProps> = ({
     if (url) {
       const formattedUrl = url.includes('://') ? url : `https://${url}`;
       onNavigate(formattedUrl);
+    }
+  };
+
+  const handleAddBookmark = async () => {
+    if (!currentUrl || !currentUrl.startsWith('http')) {
+      console.log('Cannot bookmark: invalid URL', currentUrl);
+      return;
+    }
+    
+    if (!window.electronAPI?.bookmarks) {
+      console.error('Electron API not available');
+      return;
+    }
+    
+    setBookmarkLoading(true);
+    try {
+      const title = currentTitle || currentUrl.replace(/^https?:\/\//, '').split('/')[0] || currentUrl;
+      console.log('Adding bookmark:', { title, url: currentUrl, favicon: currentFavicon });
+      
+      await window.electronAPI.bookmarks.add({
+        title,
+        url: currentUrl,
+        favicon: currentFavicon || '',
+        folderId: 1, // Bookmarks Bar
+        position: 0
+      });
+      
+      console.log('Bookmark added successfully');
+      if (onBookmarkAdded) onBookmarkAdded();
+    } catch (err) {
+      console.error('Failed to add bookmark:', err);
+      alert('Failed to add bookmark. Check console for details.');
+    } finally {
+      setBookmarkLoading(false);
     }
   };
 
@@ -126,6 +167,9 @@ export const NavigationBar: React.FC<NavigationBarProps> = ({
           variant="ghost"
           size="icon"
           className="hover:bg-secondary/80 transition-all duration-200"
+          onClick={handleAddBookmark}
+          disabled={bookmarkLoading || !currentUrl}
+          title="Add to Bookmarks"
         >
           <Star className="w-4 h-4" />
         </Button>

@@ -4,7 +4,7 @@ import { Globe, Loader2 } from 'lucide-react';
 interface BrowserViewProps {
   url: string;
   isLoading: boolean;
-  onNavStateChange?: (state: { url: string; canGoBack: boolean; canGoForward: boolean }) => void;
+  onNavStateChange?: (state: { url: string; title?: string; favicon?: string; canGoBack: boolean; canGoForward: boolean }) => void;
 }
 
 export type BrowserViewHandle = {
@@ -30,20 +30,97 @@ export const BrowserView = React.forwardRef<BrowserViewHandle, BrowserViewProps>
 
     const handleLoadStop = () => {
       console.log('Page loaded');
+      // Extract title and favicon after page loads
+      notifyNavState();
     };
 
     const handleDidFailLoad = (event: any) => {
-      console.error('Failed to load:', event);
+      // Ignore -3 (ERR_ABORTED) errors - these are often false positives from redirects
+      if (event.errorCode === -3) {
+        console.log('Navigation aborted (likely redirect or user action)');
+        return;
+      }
+      
+      // Only log actual errors
+      if (event.errorCode && event.errorCode !== 0) {
+        console.error('Failed to load:', {
+          code: event.errorCode,
+          description: event.errorDescription,
+          url: event.validatedURL
+        });
+      }
     };
 
     const notifyNavState = () => {
       const w = webviewRef.current as any;
       if (w && onNavStateChange) {
-        onNavStateChange({
-          url: w.getURL?.() || w.getAttribute?.('src') || url,
-          canGoBack: w.canGoBack?.() ?? false,
-          canGoForward: w.canGoForward?.() ?? false,
-        });
+        // Get title from webview
+        const title = w.getTitle?.() || '';
+        
+        // Extract favicon - try to get from page
+        let favicon = '';
+        try {
+          // Execute script to get favicon from page
+          w.executeJavaScript(`
+            (function() {
+              const links = document.querySelectorAll('link[rel*="icon"]');
+              for (let link of links) {
+                if (link.href) return link.href;
+              }
+              return '';
+            })();
+          `).then((result: string) => {
+            if (result && result.startsWith('http')) {
+              favicon = result;
+            } else if (result) {
+              // Relative URL - construct absolute
+              const currentUrl = w.getURL();
+              try {
+                const urlObj = new URL(currentUrl);
+                favicon = new URL(result, urlObj.origin).href;
+              } catch (e) {
+                favicon = '';
+              }
+            }
+            
+            // If no favicon found, use default domain favicon
+            if (!favicon) {
+              try {
+                const urlObj = new URL(w.getURL());
+                favicon = `${urlObj.origin}/favicon.ico`;
+              } catch (e) {
+                favicon = '';
+              }
+            }
+            
+            // Update with favicon
+            onNavStateChange({
+              url: w.getURL?.() || w.getAttribute?.('src') || url,
+              title: title || w.getURL?.()?.replace(/^https?:\/\//, '').split('/')[0] || 'New Page',
+              favicon: favicon,
+              canGoBack: w.canGoBack?.() ?? false,
+              canGoForward: w.canGoForward?.() ?? false,
+            });
+          }).catch(() => {
+            // Fallback without favicon
+            onNavStateChange({
+              url: w.getURL?.() || w.getAttribute?.('src') || url,
+              title: title || w.getURL?.()?.replace(/^https?:\/\//, '').split('/')[0] || 'New Page',
+              favicon: '',
+              canGoBack: w.canGoBack?.() ?? false,
+              canGoForward: w.canGoForward?.() ?? false,
+            });
+          });
+        } catch (error) {
+          // Immediate callback without favicon
+          onNavStateChange({
+            url: w.getURL?.() || w.getAttribute?.('src') || url,
+            title: title || w.getURL?.()?.replace(/^https?:\/\//, '').split('/')[0] || 'New Page',
+            favicon: '',
+            canGoBack: w.canGoBack?.() ?? false,
+            canGoForward: w.canGoForward?.() ?? false,
+          });
+        }
       }
     };
 

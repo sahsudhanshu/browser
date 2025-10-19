@@ -33,7 +33,7 @@ interface Tab {
 
 export const Browser: React.FC = () => {
   const [tabs, setTabs] = useState<Tab[]>([
-    { id: '1', title: 'New Tab', url: '', history: [], historyIndex: -1 }
+    { id: '1', title: 'New Tab', url: '', favicon: '', history: [], historyIndex: -1 }
   ]);
   const [activeTabId, setActiveTabId] = useState('1');
   const [isAIOpen, setIsAIOpen] = useState(false);
@@ -47,6 +47,7 @@ export const Browser: React.FC = () => {
   const [downloads, setDownloads] = useState<DownloadItem[]>([]);
   const webviewHandleRef = useRef<BrowserViewHandle | null>(null);
   const [navStateByTab, setNavStateByTab] = useState<Record<string, { url: string; canGoBack: boolean; canGoForward: boolean }>>({});
+  const [bookmarksRefreshKey, setBookmarksRefreshKey] = useState(0);
 
   const activeTab = tabs.find(tab => tab.id === activeTabId);
 
@@ -112,6 +113,7 @@ export const Browser: React.FC = () => {
       id: Date.now().toString(),
       title: 'New Tab',
       url: '',
+      favicon: '',
       history: [],
       historyIndex: -1
     };
@@ -123,7 +125,7 @@ export const Browser: React.FC = () => {
     setTabs(prev => {
       const newTabs = prev.filter(tab => tab.id !== id);
       if (newTabs.length === 0) {
-        return [{ id: Date.now().toString(), title: 'New Tab', url: '', history: [], historyIndex: -1 }];
+        return [{ id: Date.now().toString(), title: 'New Tab', url: '', favicon: '', history: [], historyIndex: -1 }];
       }
       return newTabs;
     });
@@ -238,6 +240,11 @@ export const Browser: React.FC = () => {
     setDownloads(prev => prev.filter(download => download.status !== 'completed'));
   };
 
+  // Callback to trigger BookmarksBar reload
+  const handleBookmarkAdded = useCallback(() => {
+    setBookmarksRefreshKey(prev => prev + 1);
+  }, []);
+
   return (
     <div className="flex flex-col h-screen bg-background">
       {/* Tab Bar */}
@@ -305,6 +312,8 @@ export const Browser: React.FC = () => {
       {/* Navigation Bar */}
       <NavigationBar
         currentUrl={activeTab?.url || ''}
+        currentTitle={activeTab?.title || ''}
+        currentFavicon={activeTab?.favicon || ''}
         canGoBack={!!activeTab && (navStateByTab[activeTabId]?.canGoBack ?? false)}
         canGoForward={!!activeTab && (navStateByTab[activeTabId]?.canGoForward ?? false)}
         isLoading={isLoading}
@@ -314,10 +323,11 @@ export const Browser: React.FC = () => {
         onHome={handleHome}
         onNavigate={handleNavigate}
         onToggleDevTools={handleToggleDevTools}
+        onBookmarkAdded={handleBookmarkAdded}
       />
 
       {/* Bookmarks Bar */}
-      {showBookmarks && <BookmarksBar onNavigate={handleNavigate} />}
+      {showBookmarks && <BookmarksBar onNavigate={handleNavigate} refreshKey={bookmarksRefreshKey} />}
 
       {/* Browser Views - keep all webviews mounted, only show active */}
   <div className="relative flex-1 h-0 min-h-0" style={{height: '100%'}}>
@@ -336,14 +346,20 @@ export const Browser: React.FC = () => {
                   setNavStateByTab((prev) => ({ ...prev, [activeTabId]: state }));
                   setTabs((prev) => prev.map(t => (
                     t.id === activeTabId
-                      ? { ...t, url: state.url, title: state.url.replace(/^https?:\/\//, '').split('/')[0] || 'New Page' }
+                      ? { 
+                          ...t, 
+                          url: state.url, 
+                          title: state.title || state.url.replace(/^https?:\/\//, '').split('/')[0] || 'New Page',
+                          favicon: state.favicon || t.favicon
+                        }
                       : t
                   )));
                   if (isElectron && state.url && state.url.startsWith('http')) {
                     try {
                       await window.electronAPI.history.add(
                         state.url,
-                        state.url.replace(/^https?:\/\//, '').split('/')[0] || 'New Page'
+                        state.title || state.url.replace(/^https?:\/\//, '').split('/')[0] || 'New Page',
+                        state.favicon
                       );
                     } catch (err) {
                       console.error('Failed to save history:', err);

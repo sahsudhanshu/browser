@@ -1,5 +1,5 @@
 import React from 'react';
-import { ArrowLeft, ArrowRight, RotateCw, Home, Search, Bookmark, Shield, Star } from 'lucide-react';
+import { ArrowLeft, ArrowRight, RotateCw, Home, Search, Bookmark, Shield, Star, Bug } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -14,6 +14,7 @@ interface NavigationBarProps {
   onRefresh: () => void;
   onHome: () => void;
   onNavigate: (url: string) => void;
+  onToggleDevTools?: () => void;
 }
 
 export const NavigationBar: React.FC<NavigationBarProps> = ({
@@ -26,6 +27,7 @@ export const NavigationBar: React.FC<NavigationBarProps> = ({
   onRefresh,
   onHome,
   onNavigate,
+  onToggleDevTools,
 }) => {
   const [inputValue, setInputValue] = React.useState(currentUrl);
   const [isFocused, setIsFocused] = React.useState(false);
@@ -109,6 +111,17 @@ export const NavigationBar: React.FC<NavigationBarProps> = ({
       </form>
 
       <div className="flex items-center gap-1">
+        {onToggleDevTools && (
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={onToggleDevTools}
+            title="Toggle DevTools (F12)"
+            className="hover:bg-secondary/80 transition-all duration-200"
+          >
+            <Bug className="w-4 h-4" />
+          </Button>
+        )}
         <Button
           variant="ghost"
           size="icon"

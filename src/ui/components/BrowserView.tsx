@@ -1,16 +1,26 @@
-import React, { useRef, useEffect } from 'react';
+import React, { useRef, useEffect, useImperativeHandle } from 'react';
 import { Globe, Loader2 } from 'lucide-react';
 
 interface BrowserViewProps {
   url: string;
   isLoading: boolean;
+  onNavStateChange?: (state: { url: string; canGoBack: boolean; canGoForward: boolean }) => void;
 }
 
-export const BrowserView: React.FC<BrowserViewProps> = ({ url, isLoading }) => {
-  const webviewRef = useRef<HTMLElement>(null);
+export type BrowserViewHandle = {
+  toggleDevTools: () => void;
+  openDevTools: () => void;
+  closeDevTools: () => void;
+  reload: () => void;
+  goBack: () => void;
+  goForward: () => void;
+};
+
+export const BrowserView = React.forwardRef<BrowserViewHandle, BrowserViewProps>(({ url, isLoading, onNavStateChange }, ref) => {
+  const webviewRef = useRef<ElectronWebViewTag.WebviewTag | null>(null);
 
   useEffect(() => {
-    const webview = webviewRef.current as any;
+  const webview = webviewRef.current as any;
 
     if (!webview) return;
 
@@ -26,20 +36,66 @@ export const BrowserView: React.FC<BrowserViewProps> = ({ url, isLoading }) => {
       console.error('Failed to load:', event);
     };
 
+    const notifyNavState = () => {
+      const w = webviewRef.current as any;
+      if (w && onNavStateChange) {
+        onNavStateChange({
+          url: w.getURL?.() || w.getAttribute?.('src') || url,
+          canGoBack: w.canGoBack?.() ?? false,
+          canGoForward: w.canGoForward?.() ?? false,
+        });
+      }
+    };
+
     // Add event listeners
     webview.addEventListener('did-start-loading', handleLoadStart);
     webview.addEventListener('did-stop-loading', handleLoadStop);
     webview.addEventListener('did-fail-load', handleDidFailLoad);
+    webview.addEventListener('did-navigate', notifyNavState);
+    webview.addEventListener('did-navigate-in-page', notifyNavState);
 
     return () => {
       webview.removeEventListener('did-start-loading', handleLoadStart);
       webview.removeEventListener('did-stop-loading', handleLoadStop);
       webview.removeEventListener('did-fail-load', handleDidFailLoad);
+      webview.removeEventListener('did-navigate', notifyNavState);
+      webview.removeEventListener('did-navigate-in-page', notifyNavState);
     };
+  }, [onNavStateChange, url]);
+
+  useImperativeHandle(ref, () => ({
+    toggleDevTools: () => {
+      const w = webviewRef.current as any;
+      if (w?.isDevToolsOpened && w.openDevTools && w.closeDevTools) {
+        if (w.isDevToolsOpened()) w.closeDevTools();
+        else w.openDevTools();
+      }
+    },
+    openDevTools: () => webviewRef.current?.openDevTools?.(),
+    closeDevTools: () => webviewRef.current?.closeDevTools?.(),
+    reload: () => webviewRef.current?.reload?.(),
+    goBack: () => webviewRef.current?.goBack?.(),
+    goForward: () => webviewRef.current?.goForward?.(),
+  }), []);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      // F12 or Ctrl+Shift+I
+      if (e.key === 'F12' || (e.ctrlKey && e.shiftKey && (e.key.toLowerCase() === 'i'))) {
+        e.preventDefault();
+        const w = webviewRef.current as any;
+        if (w?.isDevToolsOpened && w.openDevTools && w.closeDevTools) {
+          if (w.isDevToolsOpened()) w.closeDevTools();
+          else w.openDevTools();
+        }
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
   }, []);
 
   return (
-    <div className="flex-1 relative bg-background overflow-hidden">
+    <div className="absolute inset-0 h-full w-full bg-background overflow-hidden" style={{height: '100%', width: '100%'}}>
       {isLoading && (
         <div className="absolute inset-0 flex items-center justify-center bg-background/80 backdrop-blur-sm z-10">
           <div className="flex flex-col items-center gap-4">
@@ -53,7 +109,7 @@ export const BrowserView: React.FC<BrowserViewProps> = ({ url, isLoading }) => {
         <webview
           ref={webviewRef}
           src={url}
-          style={{ width: '100%', height: '100%', border: 'none' }}
+          style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', border: 'none' }}
           allowpopups={true}
         />
       ) : (
@@ -88,4 +144,4 @@ export const BrowserView: React.FC<BrowserViewProps> = ({ url, isLoading }) => {
       )}
     </div>
   );
-};
+});

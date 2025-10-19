@@ -1,16 +1,15 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Plus, Sparkles, Menu, Settings, Download, History } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { BrowserTab } from './BrowserTab';
 import { NavigationBar } from './NavigationBar';
 import { BookmarksBar } from './BookmarksBar';
-import { BrowserView } from './BrowserView';
+import { BrowserView, type BrowserViewHandle } from './BrowserView';
 import { AIAssistant } from './AIAssistant';
 import { HistoryPanel } from './HistoryPanel';
 import { DownloadsPanel } from './DownloadsPanel';
 import { TabSearch } from './TabSearch';
-import type { HistoryItem } from './HistoryPanel';
 import type { DownloadItem } from './DownloadsPanel';
 import {
   DropdownMenu,
@@ -20,13 +19,16 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 
+// Check if running in Electron
+const isElectron = typeof window !== 'undefined' && window.electronAPI;
+
 interface Tab {
   id: string;
   title: string;
   url: string;
   favicon?: string;
-  history: string[];
-  historyIndex: number;
+  history: string[]; // kept for future, not used for webview nav
+  historyIndex: number; // kept for future, not used for webview nav
 }
 
 export const Browser: React.FC = () => {
@@ -41,9 +43,10 @@ export const Browser: React.FC = () => {
   const [showBookmarks, setShowBookmarks] = useState(true);
   const [isLoading, setIsLoading] = useState(false);
   
-  // History and Downloads state
-  const [history, setHistory] = useState<HistoryItem[]>([]);
+  // Downloads state (history now managed by HistoryPanel)
   const [downloads, setDownloads] = useState<DownloadItem[]>([]);
+  const webviewHandleRef = useRef<BrowserViewHandle | null>(null);
+  const [navStateByTab, setNavStateByTab] = useState<Record<string, { url: string; canGoBack: boolean; canGoForward: boolean }>>({});
 
   const activeTab = tabs.find(tab => tab.id === activeTabId);
 
@@ -139,61 +142,32 @@ export const Browser: React.FC = () => {
     
     setIsLoading(true);
     
-    // Simulate loading and add to history
-    setTimeout(() => {
-      const historyItem: HistoryItem = {
-        id: Date.now().toString(),
-        title: url.replace(/^https?:\/\//, '').split('/')[0] || 'New Page',
-        url,
-        timestamp: new Date(),
-      };
-      
-      setHistory(prev => [historyItem, ...prev]);
-      
-      setTabs(prev => prev.map(tab => {
-        if (tab.id === activeTabId) {
-          const newHistory = [...tab.history.slice(0, tab.historyIndex + 1), url];
-          return {
-            ...tab,
-            url,
-            title: historyItem.title,
-            history: newHistory,
-            historyIndex: newHistory.length - 1
-          };
-        }
-        return tab;
-      }));
-      setIsLoading(false);
-    }, 1000);
+    // Just update the tab URL - the webview will handle navigation
+    // and we'll track the visit in onNavStateChange
+    setTabs(prev => prev.map(tab => {
+      if (tab.id === activeTabId) {
+        const newHistory = [...tab.history.slice(0, tab.historyIndex + 1), url];
+        return {
+          ...tab,
+          url,
+          title: url.replace(/^https?:\/\//, '').split('/')[0] || 'New Page',
+          history: newHistory,
+          historyIndex: newHistory.length - 1
+        };
+      }
+      return tab;
+    }));
+    
+    setTimeout(() => setIsLoading(false), 1000);
   }, [activeTab, activeTabId]);
 
   const handleGoBack = useCallback(() => {
-    if (!activeTab || activeTab.historyIndex <= 0) return;
-    
-    const newIndex = activeTab.historyIndex - 1;
-    const newUrl = activeTab.history[newIndex];
-    
-    setTabs(prev => prev.map(tab => {
-      if (tab.id === activeTabId) {
-        return { ...tab, url: newUrl, historyIndex: newIndex };
-      }
-      return tab;
-    }));
-  }, [activeTab, activeTabId]);
+    webviewHandleRef.current?.goBack();
+  }, []);
 
   const handleGoForward = useCallback(() => {
-    if (!activeTab || activeTab.historyIndex >= activeTab.history.length - 1) return;
-    
-    const newIndex = activeTab.historyIndex + 1;
-    const newUrl = activeTab.history[newIndex];
-    
-    setTabs(prev => prev.map(tab => {
-      if (tab.id === activeTabId) {
-        return { ...tab, url: newUrl, historyIndex: newIndex };
-      }
-      return tab;
-    }));
-  }, [activeTab, activeTabId]);
+    webviewHandleRef.current?.goForward();
+  }, []);
 
   const handleRefresh = useCallback(() => {
     if (!activeTab?.url) return;
@@ -211,11 +185,25 @@ export const Browser: React.FC = () => {
     }));
   }, [activeTab, activeTabId]);
 
+  // DevTools toggle for current webview
+  const handleToggleDevTools = useCallback(() => {
+    webviewHandleRef.current?.toggleDevTools();
+  }, []);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'F12' || (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 'i')) {
+        e.preventDefault();
+        webviewHandleRef.current?.toggleDevTools();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
   // Download handlers
   const handleToggleHistory = () => setIsHistoryOpen(prev => !prev);
   const handleToggleDownloads = () => setIsDownloadsOpen(prev => !prev);
-
-  const handleClearHistory = () => setHistory([]);
 
   const handlePauseResumeDownload = (id: string) => {
     setDownloads(prev =>
@@ -317,21 +305,56 @@ export const Browser: React.FC = () => {
       {/* Navigation Bar */}
       <NavigationBar
         currentUrl={activeTab?.url || ''}
-        canGoBack={!!activeTab && activeTab.historyIndex > 0}
-        canGoForward={!!activeTab && activeTab.historyIndex < activeTab.history.length - 1}
+        canGoBack={!!activeTab && (navStateByTab[activeTabId]?.canGoBack ?? false)}
+        canGoForward={!!activeTab && (navStateByTab[activeTabId]?.canGoForward ?? false)}
         isLoading={isLoading}
         onBack={handleGoBack}
         onForward={handleGoForward}
         onRefresh={handleRefresh}
         onHome={handleHome}
         onNavigate={handleNavigate}
+        onToggleDevTools={handleToggleDevTools}
       />
 
       {/* Bookmarks Bar */}
       {showBookmarks && <BookmarksBar onNavigate={handleNavigate} />}
 
-      {/* Browser View */}
-      <BrowserView url={activeTab?.url || ''} isLoading={isLoading} />
+      {/* Browser Views - keep all webviews mounted, only show active */}
+  <div className="relative flex-1 h-0 min-h-0" style={{height: '100%'}}>
+        {tabs.map(tab => (
+          <div
+            key={tab.id}
+            style={{ display: tab.id === activeTabId ? 'block' : 'none', height: '100%', width: '100%' }}
+            className="absolute inset-0 h-full w-full"
+          >
+            <BrowserView
+              ref={tab.id === activeTabId ? webviewHandleRef : undefined}
+              url={tab.url}
+              isLoading={isLoading && tab.id === activeTabId}
+              onNavStateChange={async (state) => {
+                if (tab.id === activeTabId) {
+                  setNavStateByTab((prev) => ({ ...prev, [activeTabId]: state }));
+                  setTabs((prev) => prev.map(t => (
+                    t.id === activeTabId
+                      ? { ...t, url: state.url, title: state.url.replace(/^https?:\/\//, '').split('/')[0] || 'New Page' }
+                      : t
+                  )));
+                  if (isElectron && state.url && state.url.startsWith('http')) {
+                    try {
+                      await window.electronAPI.history.add(
+                        state.url,
+                        state.url.replace(/^https?:\/\//, '').split('/')[0] || 'New Page'
+                      );
+                    } catch (err) {
+                      console.error('Failed to save history:', err);
+                    }
+                  }
+                }
+              }}
+            />
+          </div>
+        ))}
+      </div>
 
       {/* AI Assistant */}
       <AIAssistant isOpen={isAIOpen} onClose={() => setIsAIOpen(false)} />
@@ -339,12 +362,10 @@ export const Browser: React.FC = () => {
       <HistoryPanel
         isOpen={isHistoryOpen}
         onClose={() => setIsHistoryOpen(false)}
-        history={history}
         onNavigate={(url) => {
           setIsHistoryOpen(false);
           handleNavigate(url);
         }}
-        onClearHistory={handleClearHistory}
       />
 
       <DownloadsPanel

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useRef, useEffect } from 'react';
 import { Globe, Loader2 } from 'lucide-react';
 
 interface BrowserViewProps {
@@ -7,6 +7,37 @@ interface BrowserViewProps {
 }
 
 export const BrowserView: React.FC<BrowserViewProps> = ({ url, isLoading }) => {
+  const webviewRef = useRef<HTMLElement>(null);
+
+  useEffect(() => {
+    const webview = webviewRef.current as any;
+
+    if (!webview) return;
+
+    const handleLoadStart = () => {
+      console.log('Page loading started');
+    };
+
+    const handleLoadStop = () => {
+      console.log('Page loaded');
+    };
+
+    const handleDidFailLoad = (event: any) => {
+      console.error('Failed to load:', event);
+    };
+
+    // Add event listeners
+    webview.addEventListener('did-start-loading', handleLoadStart);
+    webview.addEventListener('did-stop-loading', handleLoadStop);
+    webview.addEventListener('did-fail-load', handleDidFailLoad);
+
+    return () => {
+      webview.removeEventListener('did-start-loading', handleLoadStart);
+      webview.removeEventListener('did-stop-loading', handleLoadStop);
+      webview.removeEventListener('did-fail-load', handleDidFailLoad);
+    };
+  }, []);
+
   return (
     <div className="flex-1 relative bg-background overflow-hidden">
       {isLoading && (
@@ -17,13 +48,13 @@ export const BrowserView: React.FC<BrowserViewProps> = ({ url, isLoading }) => {
           </div>
         </div>
       )}
-      
+
       {url ? (
-        <iframe
+        <webview
+          ref={webviewRef}
           src={url}
-          className="w-full h-full border-0"
-          title="Browser View"
-          sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
+          style={{ width: '100%', height: '100%', border: 'none' }}
+          allowpopups={true}
         />
       ) : (
         <div className="flex flex-col items-center justify-center h-full">
@@ -33,7 +64,7 @@ export const BrowserView: React.FC<BrowserViewProps> = ({ url, isLoading }) => {
             <p className="text-muted-foreground text-center max-w-md">
               Start browsing by entering a URL in the address bar or selecting a bookmark
             </p>
-            
+
             <div className="grid grid-cols-2 gap-4 mt-8">
               <div className="p-4 rounded-lg bg-secondary/50 hover:bg-secondary/80 transition-all duration-200 cursor-pointer">
                 <h3 className="font-semibold text-sm mb-1">Quick Search</h3>
